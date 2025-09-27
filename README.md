@@ -4,7 +4,7 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
 
 ## Features
 
-- Join any public Jitsi room by name with no moderator or authentication required.
+- Join any public Jitsi room by name with no moderator or authentication required (anonymous domain handled automatically).
 - High-quality audio/video calling powered by the official `lib-jitsi-meet` SDK.
 - Real-time group chat alongside the call.
 - Participant list with live display-name updates.

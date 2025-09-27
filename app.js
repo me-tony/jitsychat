@@ -202,7 +202,8 @@
       hosts: {
         domain,
         muc: `conference.${domain}`,
-        focus: `focus.${domain}`
+        focus: `focus.${domain}`,
+        anonymousdomain: `guest.${domain}`
       },
       serviceUrl: websocketService,
       websocket: websocketService,
