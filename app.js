@@ -180,9 +180,11 @@
     const connectionOptions = {
       hosts: {
         domain,
-        muc: 'conference.meet.jit.si'
+        muc: `conference.${domain}`,
+        focus: `focus.${domain}`,
+        anonymousdomain: `guest.${domain}`
       },
-      serviceUrl: `wss://${domain}/xmpp-websocket?room=${encodeURIComponent(appState.roomName)}`,
+      serviceUrl: `wss://${domain}/xmpp-websocket`,
       clientNode: 'http://jitsi.org/jitsimeet',
       useStunTurn: true
     };
@@ -266,6 +268,12 @@
       });
     });
 
+    conference.on(JitsiMeetJS.events.conference.CONFERENCE_FAILED, error => {
+      console.error('Conference failed', error);
+      disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
+      setStatus('Conference failed. Please try rejoining.', 'error');
+    });
+
     conference.join();
 
     JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] })
@@ -291,8 +299,10 @@
     setStatus('Connection failed. Please try again.', 'error');
   }
 
-  function onConnectionDisconnected() {
-    setStatus('Disconnected', 'info');
+  function onConnectionDisconnected(reason) {
+    console.warn('Connection disconnected', reason);
+    disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
+    setStatus('Connection with Jitsi servers was lost. Please try again.', 'error');
   }
 
   function attachLocalTrack(track) {
@@ -414,7 +424,7 @@
   }
 
   function disconnectConference(options = {}) {
-    const { preserveStatus = false } = options;
+    const { preserveStatus = false, skipConnectionDisconnect = false } = options;
     if (appState.localTracks.length > 0) {
       appState.localTracks.forEach(track => {
         track.dispose();
@@ -442,7 +452,9 @@
     if (appState.connection) {
       const connection = appState.connection;
       appState.connection = null;
-      connection.disconnect();
+      if (!skipConnectionDisconnect) {
+        connection.disconnect();
+      }
     }
 
     if (!preserveStatus) {
