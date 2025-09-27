@@ -36,7 +36,7 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
 ## Notes
 
 - The app loads the official `lib-jitsi-meet` bundle from `https://meet.jit.si`. Ensure the domain is reachable from your network.
-- Anonymous access relies on the guest domain that Jitsi documents for [secure domain deployments](https://jitsi.github.io/handbook/docs/devops-guide/devops-guide-quickstart#secure-domain), so the client always connects through `guest.meet.jit.si` unless you customise it.
+- The app connects to the default meet.jit.si hosts. The public deployment allows the first anonymous participant to become moderator automatically, so no extra guest domain or authentication is required.
 - Browsers require user interaction before accessing the camera and microphone. Grant permission when prompted.
 - Leaving the page or clicking **Leave call** will cleanly disconnect from the conference and release local media tracks.
 - If the connection to Jitsi is interrupted, the app automatically retries up to three times while keeping your call UI and chat history in place.
