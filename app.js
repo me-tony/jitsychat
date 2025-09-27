@@ -200,7 +200,8 @@
       hosts: {
         domain,
         muc: `conference.${domain}`,
-        focus: `focus.${domain}`
+        focus: `focus.${domain}`,
+        anonymousdomain: `guest.${domain}`
       },
       serviceUrl: `wss://${domain}/xmpp-websocket`,
       clientNode: 'http://jitsi.org/jitsimeet',
@@ -294,7 +295,7 @@
       const friendlyMessage = describeConferenceFailure(error);
       console.error('Conference failed', error, friendlyMessage);
       appState.intentionalDisconnect = true;
-      disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
+      disconnectConference({ preserveStatus: true });
       setStatus(friendlyMessage, 'error');
     });
 
@@ -523,7 +524,6 @@
   function disconnectConference(options = {}) {
     const {
       preserveStatus = false,
-      skipConnectionDisconnect = false,
       resetUi = true,
       keepLocalTracks = false
     } = options;
@@ -580,12 +580,10 @@
     if (appState.connection) {
       const connection = appState.connection;
       appState.connection = null;
-      if (!skipConnectionDisconnect) {
-        try {
-          connection.disconnect();
-        } catch (error) {
-          console.warn('Failed to disconnect Jitsi connection cleanly', error);
-        }
+      try {
+        connection.disconnect();
+      } catch (error) {
+        console.warn('Failed to disconnect Jitsi connection cleanly', error);
       }
     }
 
@@ -627,19 +625,26 @@
     const attempt = ++appState.reconnectAttempts;
     const delay = Math.min(5000, attempt * 2000);
     const keepLocalTracks = appState.localTracks.length > 0;
+    const hadConnection = Boolean(appState.connection);
 
+    if (hadConnection) {
+      appState.intentionalDisconnect = true;
+    }
     disconnectConference({
       preserveStatus: true,
-      skipConnectionDisconnect: true,
       resetUi: false,
       keepLocalTracks
     });
+    if (!hadConnection) {
+      appState.intentionalDisconnect = false;
+    }
 
     appState.reconnecting = true;
     setStatus(`Connection lost. Reconnecting (attempt ${attempt}/${appState.maxReconnectAttempts})…`, 'error');
 
     appState.reconnectTimer = setTimeout(() => {
       appState.reconnectTimer = null;
+      appState.intentionalDisconnect = false;
       if (!appState.participants.has('local')) {
         addParticipant('local', appState.displayName, true);
       }
