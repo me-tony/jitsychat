@@ -23,7 +23,12 @@
     displayName: '',
     audioMuted: false,
     videoMuted: false,
-    joining: false
+    joining: false,
+    intentionalDisconnect: false,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 3,
+    reconnecting: false,
+    reconnectTimer: null
   };
 
   if (!window.JitsiMeetJS) {
@@ -61,6 +66,10 @@
     appState.roomName = room;
     appState.displayName = name;
     appState.joining = true;
+    appState.intentionalDisconnect = false;
+    appState.reconnecting = false;
+    appState.reconnectAttempts = 0;
+    clearReconnectTimer();
     setStatus('Connecting…', 'info');
     joinPanel.classList.add('hidden');
     callPanel.classList.remove('hidden');
@@ -146,10 +155,12 @@
   });
 
   leaveBtn.addEventListener('click', () => {
+    appState.intentionalDisconnect = true;
     disconnectConference();
   });
 
   window.addEventListener('beforeunload', () => {
+    appState.intentionalDisconnect = true;
     disconnectConference();
   });
 
@@ -219,6 +230,9 @@
     const conference = appState.connection.initJitsiConference(appState.roomName, conferenceOptions);
     appState.conference = conference;
     conference.setDisplayName(appState.displayName);
+    appState.reconnectAttempts = 0;
+    appState.reconnecting = false;
+    clearReconnectTimer();
 
     conference.on(JitsiMeetJS.events.conference.TRACK_ADDED, track => {
       if (track.isLocal()) {
@@ -264,6 +278,7 @@
     });
 
     conference.on(JitsiMeetJS.events.conference.CONFERENCE_JOINED, () => {
+      appState.joining = false;
       setStatus(`In room ${appState.roomName}`, 'success');
       conference.getParticipants().forEach(participant => {
         const id = participant.getId();
@@ -278,39 +293,87 @@
     conference.on(JitsiMeetJS.events.conference.CONFERENCE_FAILED, error => {
       const friendlyMessage = describeConferenceFailure(error);
       console.error('Conference failed', error, friendlyMessage);
+      appState.intentionalDisconnect = true;
       disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
       setStatus(friendlyMessage, 'error');
     });
 
     conference.join();
 
-    JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] })
-      .then(tracks => {
-        tracks.forEach(track => {
-          appState.localTracks.push(track);
-          track.addEventListener(JitsiMeetJS.events.track.TRACK_STOPPED, () => {
-            console.log(`${track.getType()} track stopped`);
-          });
-          conference.addTrack(track);
-          attachLocalTrack(track);
-        });
-      })
+    ensureLocalTracks(conference)
       .catch(error => {
-        console.error('Failed to create local tracks', error);
+        console.error('Failed to prepare local tracks', error);
         setStatus('Could not access camera/microphone. Check permissions.', 'error');
       });
   }
 
   function onConnectionFailed(error) {
     console.error('Connection failed', error);
+    if (appState.reconnecting) {
+      if (appState.reconnectAttempts < appState.maxReconnectAttempts) {
+        startReconnect();
+      } else {
+        disconnectConference({ preserveStatus: true });
+        setStatus('Unable to reconnect to Jitsi. Please try joining again.', 'error');
+      }
+      return;
+    }
+
     disconnectConference({ preserveStatus: true });
     setStatus('Connection failed. Please try again.', 'error');
   }
 
   function onConnectionDisconnected(reason) {
     console.warn('Connection disconnected', reason);
-    disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
-    setStatus('Connection with Jitsi servers was lost. Please try again.', 'error');
+    if (appState.intentionalDisconnect) {
+      appState.intentionalDisconnect = false;
+      return;
+    }
+
+    startReconnect();
+  }
+
+  function ensureLocalTracks(conference) {
+    if (appState.localTracks.length > 0) {
+      appState.localTracks.forEach(track => {
+        attachLocalTrack(track);
+        conference.addTrack(track).catch(error => {
+          console.warn('Failed to add existing local track to conference', error);
+        });
+        syncTrackMuteState(track);
+      });
+      return Promise.resolve();
+    }
+
+    return JitsiMeetJS.createLocalTracks({ devices: ['audio', 'video'] })
+      .then(tracks => {
+        tracks.forEach(track => {
+          appState.localTracks.push(track);
+          track.addEventListener(JitsiMeetJS.events.track.TRACK_STOPPED, () => {
+            console.log(`${track.getType()} track stopped`);
+          });
+          conference.addTrack(track).catch(error => {
+            console.warn('Failed to add local track to conference', error);
+          });
+          attachLocalTrack(track);
+          syncTrackMuteState(track);
+        });
+      });
+  }
+
+  function syncTrackMuteState(track) {
+    const type = track.getType();
+    const shouldMute = type === 'audio' ? appState.audioMuted : appState.videoMuted;
+    if (typeof track.isMuted === 'function' && track.isMuted() === shouldMute) {
+      return;
+    }
+
+    const toggle = shouldMute ? track.mute : track.unmute;
+    if (typeof toggle === 'function') {
+      Promise.resolve(toggle.call(track)).catch(error => {
+        console.warn(`Failed to ${shouldMute ? 'mute' : 'unmute'} ${type} track`, error);
+      });
+    }
   }
 
   function attachLocalTrack(track) {
@@ -374,7 +437,6 @@
   function detachRemoteTrack(track) {
     const participantId = track.getParticipantId();
     const type = track.getType();
-    const mapKey = `${participantId}-${type}`;
     const participantTracks = appState.remoteTracks.get(participantId);
     if (participantTracks) {
       participantTracks.delete(type);
@@ -459,22 +521,15 @@
   }
 
   function disconnectConference(options = {}) {
-    const { preserveStatus = false, skipConnectionDisconnect = false } = options;
-    if (appState.localTracks.length > 0) {
-      appState.localTracks.forEach(track => {
-        track.dispose();
-      });
-      appState.localTracks = [];
-      localTracksEl.innerHTML = '';
-    }
+    const {
+      preserveStatus = false,
+      skipConnectionDisconnect = false,
+      resetUi = true,
+      keepLocalTracks = false
+    } = options;
 
-    for (const participantTracks of appState.remoteTracks.values()) {
-      for (const track of participantTracks.values()) {
-        track.dispose();
-      }
-    }
-    appState.remoteTracks.clear();
-    remoteTracksEl.innerHTML = '';
+    clearReconnectTimer();
+    appState.reconnecting = false;
 
     if (appState.conference) {
       const conference = appState.conference;
@@ -484,25 +539,124 @@
       });
     }
 
+    for (const [participantId, participantTracks] of appState.remoteTracks.entries()) {
+      for (const [type, track] of participantTracks.entries()) {
+        const containerId = `remote-${participantId}-${type}`;
+        const container = document.getElementById(containerId);
+        if (container) {
+          const media = container.querySelector(type === 'video' ? 'video' : 'audio');
+          if (media) {
+            track.detach(media);
+          }
+          container.remove();
+        }
+        track.dispose();
+      }
+    }
+    appState.remoteTracks.clear();
+    remoteTracksEl.innerHTML = '';
+
+    if (!keepLocalTracks && appState.localTracks.length > 0) {
+      appState.localTracks.forEach(track => {
+        const type = track.getType();
+        const container = document.getElementById(`local-${type}`);
+        if (container) {
+          const media = container.querySelector(type === 'video' ? 'video' : 'audio');
+          if (media) {
+            track.detach(media);
+          }
+          container.remove();
+        }
+        track.dispose();
+      });
+      appState.localTracks = [];
+      appState.audioMuted = false;
+      appState.videoMuted = false;
+      toggleAudioBtn.textContent = 'Mute audio';
+      toggleVideoBtn.textContent = 'Hide video';
+      localTracksEl.innerHTML = '';
+    }
+
     if (appState.connection) {
       const connection = appState.connection;
       appState.connection = null;
       if (!skipConnectionDisconnect) {
-        connection.disconnect();
+        try {
+          connection.disconnect();
+        } catch (error) {
+          console.warn('Failed to disconnect Jitsi connection cleanly', error);
+        }
       }
+    }
+
+    if (resetUi) {
+      callPanel.classList.add('hidden');
+      joinPanel.classList.remove('hidden');
+      chatInput.value = '';
+      messagesEl.innerHTML = '';
+      clearParticipants();
+      appState.reconnectAttempts = 0;
+    } else {
+      clearParticipants();
     }
 
     if (!preserveStatus) {
       setStatus('Disconnected', 'info');
     }
-    callPanel.classList.add('hidden');
-    joinPanel.classList.remove('hidden');
-    chatInput.value = '';
-    messagesEl.innerHTML = '';
-    clearParticipants();
-    appState.audioMuted = false;
-    appState.videoMuted = false;
-    toggleAudioBtn.textContent = 'Mute audio';
-    toggleVideoBtn.textContent = 'Hide video';
+
+    appState.joining = false;
+  }
+
+  function startReconnect() {
+    if (!appState.roomName || !appState.displayName) {
+      disconnectConference({ preserveStatus: true });
+      setStatus('Connection lost. Please return to the lobby and rejoin.', 'error');
+      return;
+    }
+
+    if (appState.reconnectTimer) {
+      return;
+    }
+
+    if (appState.reconnectAttempts >= appState.maxReconnectAttempts) {
+      disconnectConference({ preserveStatus: true });
+      setStatus('Unable to reconnect to Jitsi. Please try joining again.', 'error');
+      return;
+    }
+
+    const attempt = ++appState.reconnectAttempts;
+    const delay = Math.min(5000, attempt * 2000);
+    const keepLocalTracks = appState.localTracks.length > 0;
+
+    disconnectConference({
+      preserveStatus: true,
+      skipConnectionDisconnect: true,
+      resetUi: false,
+      keepLocalTracks
+    });
+
+    appState.reconnecting = true;
+    setStatus(`Connection lost. Reconnecting (attempt ${attempt}/${appState.maxReconnectAttempts})…`, 'error');
+
+    appState.reconnectTimer = setTimeout(() => {
+      appState.reconnectTimer = null;
+      if (!appState.participants.has('local')) {
+        addParticipant('local', appState.displayName, true);
+      }
+      appState.joining = true;
+      try {
+        connectToConference();
+      } catch (error) {
+        console.error('Failed to initiate reconnect attempt', error);
+        startReconnect();
+      }
+    }, delay);
+  }
+
+  function clearReconnectTimer() {
+    if (appState.reconnectTimer) {
+      clearTimeout(appState.reconnectTimer);
+      appState.reconnectTimer = null;
+    }
   }
 })();

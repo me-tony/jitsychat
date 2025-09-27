@@ -38,3 +38,4 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
 - The app loads the official `lib-jitsi-meet` bundle from `https://meet.jit.si`. Ensure the domain is reachable from your network.
 - Browsers require user interaction before accessing the camera and microphone. Grant permission when prompted.
 - Leaving the page or clicking **Leave call** will cleanly disconnect from the conference and release local media tracks.
+- If the connection to Jitsi is interrupted, the app automatically retries up to three times while keeping your call UI and chat history in place.
