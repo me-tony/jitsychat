@@ -20,7 +20,7 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
    ```
 
 2. Open `http://localhost:4173/` in a modern browser.
-3. Enter a room name (any string) and your display name, then click **Join call**.
+3. Enter a room name (letters, numbers, underscores, or hyphens) and your display name, then click **Join call**. Any other characters will be stripped automatically to match Jitsi's room requirements.
 4. Share the same room name with others so they can join you instantly.
 
 ## Project structure

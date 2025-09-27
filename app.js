@@ -42,12 +42,20 @@
     }
 
     const formData = new FormData(joinForm);
-    const room = (formData.get('room') || '').toString().trim();
+    const rawRoom = (formData.get('room') || '').toString().trim();
+    const room = rawRoom
+      .normalize('NFKD')
+      .replace(/[^\p{Letter}\p{Number}_-]+/gu, '')
+      .slice(0, 64);
     const name = (formData.get('displayName') || '').toString().trim();
 
     if (!room || !name) {
       setStatus('Room name and display name are required', 'error');
       return;
+    }
+
+    if (room !== rawRoom) {
+      setStatus(`Joining room as "${room}" (invalid characters removed).`, 'info');
     }
 
     appState.roomName = room;
@@ -181,8 +189,7 @@
       hosts: {
         domain,
         muc: `conference.${domain}`,
-        focus: `focus.${domain}`,
-        anonymousdomain: `guest.${domain}`
+        focus: `focus.${domain}`
       },
       serviceUrl: `wss://${domain}/xmpp-websocket`,
       clientNode: 'http://jitsi.org/jitsimeet',
@@ -269,9 +276,10 @@
     });
 
     conference.on(JitsiMeetJS.events.conference.CONFERENCE_FAILED, error => {
-      console.error('Conference failed', error);
+      const friendlyMessage = describeConferenceFailure(error);
+      console.error('Conference failed', error, friendlyMessage);
       disconnectConference({ preserveStatus: true, skipConnectionDisconnect: true });
-      setStatus('Conference failed. Please try rejoining.', 'error');
+      setStatus(friendlyMessage, 'error');
     });
 
     conference.join();
@@ -421,6 +429,33 @@
     containers.forEach(labelEl => {
       labelEl.textContent = participant.name;
     });
+  }
+
+  function describeConferenceFailure(error) {
+    const errors = JitsiMeetJS?.errors?.conference || {};
+    switch (error) {
+      case errors.AUTHENTICATION_REQUIRED:
+      case errors.PASSWORD_REQUIRED:
+        return 'Conference requires a password or moderator approval.';
+      case errors.CONFERENCE_MAX_USERS:
+        return 'Room is full. Try again later or choose another room name.';
+      case errors.CONFERENCE_DESTROYED:
+        return 'The conference ended. Try creating a new room.';
+      case errors.FOCUS_DISCONNECTED:
+      case errors.FOCUS_LEFT:
+        return 'Lost connection to the Jitsi focus service. Please rejoin.';
+      case errors.INCOMPATIBLE_SERVER_VERSIONS:
+        return 'Incompatible Jitsi version. Refresh and try again.';
+      case errors.NETWORK_FAILURE:
+      case errors.SERVER_ERROR:
+      case errors.JVB121_ALLOCATION_FAILED:
+        return 'Temporary Jitsi server issue. Please try rejoining.';
+      default:
+        if (typeof error === 'string' && error.length > 0) {
+          return `Conference failed: ${error}`;
+        }
+        return 'Conference failed. Please try rejoining.';
+    }
   }
 
   function disconnectConference(options = {}) {
