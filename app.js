@@ -202,6 +202,7 @@
     const connectionOptions = {
       hosts: {
         domain,
+        anonymousdomain: `guest.${domain}`,
         muc: `conference.${domain}`,
         focus: `focus.${domain}`
       },
