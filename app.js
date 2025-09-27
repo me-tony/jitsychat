@@ -3,7 +3,9 @@
   const joinPanel = document.getElementById('join-panel');
   const callPanel = document.getElementById('call-panel');
   const joinForm = document.getElementById('join-form');
-  const loginBtn = document.getElementById('login-button');
+  const domainInput = document.getElementById('domain');
+  const roomInput = document.getElementById('room');
+  const usernameInput = document.getElementById('username');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const messagesEl = document.getElementById('messages');
@@ -14,18 +16,16 @@
   const toggleVideoBtn = document.getElementById('toggle-video');
   const leaveBtn = document.getElementById('leave');
 
-  const JITSI_DOMAIN = 'meet.jit.si';
-
   const appState = {
     connection: null,
     conference: null,
     localTracks: [],
     remoteTracks: new Map(),
     participants: new Map(),
+    domain: '',
     roomName: '',
     displayName: '',
-    authenticating: false,
-    authPromise: null,
+    credentials: null,
     audioMuted: false,
     videoMuted: false,
     joining: false,
@@ -43,6 +43,28 @@
       .slice(0, 64);
   }
 
+  function sanitizeDomain(value) {
+    return value
+      .toString()
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/$/, '')
+      .toLowerCase();
+  }
+
+  function buildAuthId(username, domain) {
+    const trimmed = username.trim();
+    if (!trimmed) {
+      return '';
+    }
+
+    if (trimmed.includes('@')) {
+      return trimmed;
+    }
+
+    return `${trimmed}@${domain}`;
+  }
+
   if (!window.JitsiMeetJS) {
     setStatus('Unable to load Jitsi library', 'error');
     return;
@@ -50,7 +72,7 @@
 
   JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR);
   JitsiMeetJS.init({ disableAudioLevels: true });
-  setStatus('Ready to join a call', 'info');
+  setStatus('Enter your Jitsi domain to start.', 'info');
 
   joinForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -59,20 +81,57 @@
     }
 
     const formData = new FormData(joinForm);
+    const rawDomain = (formData.get('domain') || '').toString();
+    const sanitizedDomain = sanitizeDomain(rawDomain);
     const rawRoom = (formData.get('room') || '').toString().trim();
     const room = sanitizeRoomName(rawRoom);
     const name = (formData.get('displayName') || '').toString().trim();
-    if (!room || !name) {
-      setStatus('Room name and display name are required', 'error');
+    const username = (formData.get('username') || '').toString().trim();
+    const password = (formData.get('password') || '').toString();
+
+    if (!sanitizedDomain) {
+      setStatus('Enter the hostname of your Jitsi Meet deployment.', 'error');
       return;
+    }
+
+    if (!room || !name) {
+      setStatus('Room name and display name are required.', 'error');
+      return;
+    }
+
+    if ((username && !password) || (!username && password)) {
+      setStatus('Provide both moderator username and password, or leave both blank to join as a guest.', 'error');
+      return;
+    }
+
+    const trimmedDomain = rawDomain.trim();
+    if (sanitizedDomain !== trimmedDomain) {
+      setStatus(`Using Jitsi domain "${sanitizedDomain}".`, 'info');
     }
 
     if (room !== rawRoom) {
       setStatus(`Joining room as "${room}" (invalid characters removed).`, 'info');
     }
 
+    appState.domain = sanitizedDomain;
     appState.roomName = room;
     appState.displayName = name;
+    appState.credentials = null;
+
+    if (username && password) {
+      appState.credentials = {
+        id: buildAuthId(username, sanitizedDomain),
+        password
+      };
+    }
+
+    if (domainInput) {
+      domainInput.value = sanitizedDomain;
+    }
+    if (roomInput) {
+      roomInput.value = room;
+    }
+
     appState.intentionalDisconnect = false;
     appState.reconnecting = false;
     appState.reconnectAttempts = 0;
@@ -80,30 +139,9 @@
     await startJoinFlow();
   });
 
-  if (loginBtn) {
-    loginBtn.addEventListener('click', async () => {
-      if (appState.authenticating) {
-        return;
-      }
-
-      const rawRoom = (document.getElementById('room')?.value || '').toString().trim();
-      if (rawRoom) {
-        appState.roomName = sanitizeRoomName(rawRoom);
-      }
-
-      try {
-        await requestExternalAuth();
-        setStatus('Authentication complete. Join the room when ready.', 'success');
-      } catch (error) {
-        console.error('Authentication popup failed', error);
-        setStatus(error?.message || 'Authentication failed. Try again.', 'error');
-      }
-    });
-  }
-
   async function startJoinFlow() {
-    if (!appState.roomName || !appState.displayName) {
-      setStatus('Room name and display name are required', 'error');
+    if (!appState.domain || !appState.roomName || !appState.displayName) {
+      setStatus('Domain, room name, and display name are required.', 'error');
       return;
     }
 
@@ -147,97 +185,6 @@
     remoteTracksEl.innerHTML = '';
   }
 
-  function buildAuthUrl() {
-    const base = `https://${JITSI_DOMAIN}/login`;
-    const params = new URLSearchParams();
-    if (appState.roomName) {
-      params.set('room', appState.roomName);
-    }
-    const query = params.toString();
-    return query ? `${base}?${query}` : base;
-  }
-
-  function requestExternalAuth() {
-    if (appState.authPromise) {
-      return appState.authPromise;
-    }
-
-    const authPromise = new Promise((resolve, reject) => {
-      let authWindow;
-      const authUrl = buildAuthUrl();
-
-      try {
-        authWindow = window.open(authUrl, 'jitsi-auth', 'width=600,height=680');
-      } catch (error) {
-        reject(new Error('Unable to open authentication popup. Allow pop-ups and try again.'));
-        return;
-      }
-
-      if (!authWindow) {
-        reject(new Error('Authentication popup was blocked. Allow pop-ups for this site and try again.'));
-        return;
-      }
-
-      const origin = `https://${JITSI_DOMAIN}`;
-      let finished = false;
-      let pollTimer = null;
-
-      const cleanup = () => {
-        window.removeEventListener('message', handleMessage);
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      };
-
-      const finish = (success, error) => {
-        if (finished) {
-          return;
-        }
-        finished = true;
-        cleanup();
-        if (!authWindow.closed) {
-          authWindow.close();
-        }
-        if (success) {
-          resolve();
-        } else {
-          reject(error || new Error('Authentication was cancelled.'));
-        }
-      };
-
-      const handleMessage = event => {
-        if (event.origin !== origin) {
-          return;
-        }
-
-        const data = event.data;
-        if (data === 'jitsi-auth-success' || (data && typeof data === 'object' && data.type === 'jitsi-auth-success')) {
-          finish(true);
-        } else if (data === 'jitsi-auth-error' || (data && typeof data === 'object' && data.type === 'jitsi-auth-error')) {
-          finish(false, new Error('Authentication failed. Try again.'));
-        } else if (data === 'jitsi-auth-cancel' || (data && typeof data === 'object' && data.type === 'jitsi-auth-cancel')) {
-          finish(false, new Error('Authentication was cancelled.'));
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-
-      pollTimer = setInterval(() => {
-        if (authWindow.closed) {
-          finish(true);
-        }
-      }, 600);
-    });
-
-    appState.authPromise = authPromise.finally(() => {
-      appState.authPromise = null;
-      appState.authenticating = false;
-    });
-    appState.authenticating = true;
-    return appState.authPromise;
-  }
-
   function isModeratorAuthError(error) {
     const conferenceErrors = JitsiMeetJS?.errors?.conference || {};
     if (error === conferenceErrors.PASSWORD_REQUIRED || error === conferenceErrors.AUTHENTICATION_REQUIRED) {
@@ -251,22 +198,12 @@
     return false;
   }
 
-  async function handleModeratorRequired() {
-    if (appState.authenticating) {
-      setStatus('Complete the open authentication window to start the meeting.', 'info');
-      return;
-    }
-
-    try {
-      disconnectConference({ preserveStatus: true });
-      setStatus('This room needs a moderator. Sign in with Google, Facebook, or GitHub to start it.', 'error');
-      await requestExternalAuth();
-      setStatus('Authentication complete. Joining room…', 'info');
-      await startJoinFlow();
-    } catch (error) {
-      console.error('Moderator authentication failed', error);
-      showLobby();
-      setStatus(error?.message || 'Authentication required to start this room.', 'error');
+  function handleModeratorRequired() {
+    disconnectConference({ preserveStatus: true });
+    showLobby();
+    setStatus('Moderator credentials are required to start this room. Enter a Prosody account and try again.', 'error');
+    if (usernameInput) {
+      usernameInput.focus();
     }
   }
 
@@ -376,13 +313,15 @@
   }
 
   async function connectToConference() {
-    const domain = JITSI_DOMAIN;
+    const domain = appState.domain;
+    const guestDomain = `guest.${domain}`;
     const roomFragment = encodeURIComponent(appState.roomName);
     const websocketService = `wss://${domain}/xmpp-websocket?room=${roomFragment}`;
     const boshService = `https://${domain}/http-bind?room=${roomFragment}`;
     const connectionOptions = {
       hosts: {
         domain,
+        anonymousdomain: guestDomain,
         muc: `conference.${domain}`,
         focus: `focus.${domain}`
       },
@@ -400,7 +339,11 @@
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onConnectionFailed);
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_DISCONNECTED, onConnectionDisconnected);
 
-    connection.connect();
+    if (appState.credentials) {
+      connection.connect(appState.credentials);
+    } else {
+      connection.connect();
+    }
   }
 
   function onConnectionSuccess() {
@@ -511,7 +454,7 @@
       error === connectionErrors.UNAUTHORIZED ||
       error === connectionErrors.CONNECTION_DENIED;
     if (authFailure) {
-      setStatus('Authentication required. Sign in with Google, Facebook, or GitHub, then try again.', 'error');
+      setStatus('Authentication required. Provide a moderator username and password, then try again.', 'error');
       customMessageShown = true;
     }
     if (appState.reconnecting) {
@@ -715,9 +658,9 @@
     const errors = JitsiMeetJS?.errors?.conference || {};
     switch (error) {
       case errors.AUTHENTICATION_REQUIRED:
-        return 'Authentication required. Sign in with Google, Facebook, or GitHub, then try again.';
+        return 'Authentication required. Enter your moderator username and password, then try again.';
       case errors.PASSWORD_REQUIRED:
-        return 'Conference requires a moderator. Sign in with Google, Facebook, or GitHub to start it.';
+        return 'Conference requires a moderator. Log in with a moderator account to open the room.';
       case errors.CONFERENCE_MAX_USERS:
         return 'Room is full. Try again later or choose another room name.';
       case errors.CONFERENCE_DESTROYED:
@@ -733,6 +676,9 @@
         return 'Temporary Jitsi server issue. Please try rejoining.';
       default:
         if (typeof error === 'string' && error.length > 0) {
+          if (error.includes('membersOnly')) {
+            return 'Room is locked until a moderator joins. Enter moderator credentials and try again.';
+          }
           return `Conference failed: ${error}`;
         }
         return 'Conference failed. Please try rejoining.';

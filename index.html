@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JitsyChat</title>
     <link rel="stylesheet" href="styles.css" />
+    <!-- Replace the src URL with https://meet.yourdomain.tld/libs/lib-jitsi-meet.min.js on self-hosted deployments -->
     <script src="https://meet.jit.si/libs/lib-jitsi-meet.min.js"></script>
     <script defer src="app.js"></script>
   </head>
@@ -17,21 +18,34 @@
       <section class="join-panel" id="join-panel">
         <form id="join-form">
           <div class="field">
-            <label for="room">Room Name</label>
+            <label for="domain">Jitsi domain</label>
+            <input
+              type="text"
+              id="domain"
+              name="domain"
+              placeholder="meet.yourdomain.tld"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="room">Room name</label>
             <input type="text" id="room" name="room" placeholder="team-sync" required />
           </div>
           <div class="field">
-            <label for="displayName">Display Name</label>
+            <label for="displayName">Display name</label>
             <input type="text" id="displayName" name="displayName" placeholder="Your name" required />
           </div>
-          <div class="auth-actions">
-            <button type="button" id="login-button" class="secondary">
-              Sign in with Google, Facebook, or GitHub
-            </button>
-            <p class="hint">
-              meet.jit.si requires moderators to authenticate with one of the supported providers. Sign in first, then join the room as usual.
-            </p>
+          <div class="field">
+            <label for="username">Moderator username (optional)</label>
+            <input type="text" id="username" name="username" placeholder="conference-host" autocomplete="username" />
           </div>
+          <div class="field">
+            <label for="password">Moderator password (optional)</label>
+            <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <p class="hint">
+            Enter moderator credentials created on your Jitsi server to unlock a new room. Leave the fields blank to join as an anonymous guest through the configured guest domain.
+          </p>
           <button type="submit" class="primary">Join call</button>
         </form>
       </section>
