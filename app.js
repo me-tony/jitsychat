@@ -21,6 +21,9 @@
     participants: new Map(),
     roomName: '',
     displayName: '',
+    authId: '',
+    authPassword: '',
+    jwt: '',
     audioMuted: false,
     videoMuted: false,
     joining: false,
@@ -53,9 +56,17 @@
       .replace(/[^\p{Letter}\p{Number}_-]+/gu, '')
       .slice(0, 64);
     const name = (formData.get('displayName') || '').toString().trim();
+    const authId = (formData.get('authId') || '').toString().trim();
+    const authPassword = (formData.get('authPassword') || '').toString();
+    const jwt = (formData.get('jwt') || '').toString().trim();
 
     if (!room || !name) {
       setStatus('Room name and display name are required', 'error');
+      return;
+    }
+
+    if (!jwt && (!authId || !authPassword)) {
+      setStatus('Authentication is required. Enter a username/password or provide a valid JWT.', 'error');
       return;
     }
 
@@ -65,6 +76,9 @@
 
     appState.roomName = room;
     appState.displayName = name;
+    appState.authId = authId;
+    appState.authPassword = authPassword;
+    appState.jwt = jwt;
     appState.joining = true;
     appState.intentionalDisconnect = false;
     appState.reconnecting = false;
@@ -212,14 +226,25 @@
       useStunTurn: true
     };
 
-    const connection = new JitsiMeetJS.JitsiConnection(null, null, connectionOptions);
+    const token = appState.jwt || null;
+    const connection = new JitsiMeetJS.JitsiConnection(null, token, connectionOptions);
     appState.connection = connection;
 
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_ESTABLISHED, onConnectionSuccess);
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onConnectionFailed);
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_DISCONNECTED, onConnectionDisconnected);
 
-    connection.connect();
+    const connectOptions = {};
+    if (appState.authId && appState.authPassword) {
+      connectOptions.id = appState.authId;
+      connectOptions.password = appState.authPassword;
+    }
+
+    if (Object.keys(connectOptions).length > 0) {
+      connection.connect(connectOptions);
+    } else {
+      connection.connect();
+    }
   }
 
   function onConnectionSuccess() {
@@ -318,6 +343,17 @@
 
   function onConnectionFailed(error) {
     console.error('Connection failed', error);
+    const connectionErrors = JitsiMeetJS?.errors?.connection || {};
+    let customMessageShown = false;
+    if (
+      error === connectionErrors.PASSWORD_REQUIRED ||
+      error === connectionErrors.AUTHENTICATION_REQUIRED ||
+      error === connectionErrors.UNAUTHORIZED ||
+      error === connectionErrors.CONNECTION_DENIED
+    ) {
+      setStatus('Authentication failed. Check your credentials or JWT token and try again.', 'error');
+      customMessageShown = true;
+    }
     if (appState.reconnecting) {
       if (appState.reconnectAttempts < appState.maxReconnectAttempts) {
         startReconnect();
@@ -329,7 +365,9 @@
     }
 
     disconnectConference({ preserveStatus: true });
-    setStatus('Connection failed. Please try again.', 'error');
+    if (!customMessageShown) {
+      setStatus('Connection failed. Please try again.', 'error');
+    }
   }
 
   function onConnectionDisconnected(reason) {
@@ -506,6 +544,7 @@
     const errors = JitsiMeetJS?.errors?.conference || {};
     switch (error) {
       case errors.AUTHENTICATION_REQUIRED:
+        return 'Authentication failed. Confirm your credentials or token and try again.';
       case errors.PASSWORD_REQUIRED:
         return 'Conference requires a password or moderator approval.';
       case errors.CONFERENCE_MAX_USERS:

@@ -24,10 +24,22 @@
             <label for="displayName">Display Name</label>
             <input type="text" id="displayName" name="displayName" placeholder="Your name" required />
           </div>
+          <div class="field">
+            <label for="authId">Jitsi username</label>
+            <input type="text" id="authId" name="authId" placeholder="you@example.com" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="authPassword">Password</label>
+            <input type="password" id="authPassword" name="authPassword" placeholder="Password" autocomplete="current-password" />
+          </div>
+          <div class="field">
+            <label for="jwt">JWT (optional alternative)</label>
+            <input type="text" id="jwt" name="jwt" placeholder="Paste a valid Jitsi JWT" autocomplete="off" />
+          </div>
           <button type="submit" class="primary">Join call</button>
         </form>
         <p class="hint">
-          Enter any room name to start a call instantly. Share the same room name with other participants to meet without authentication.
+          Meet.jit.si now requires authentication. Provide either your Jitsi username and password or a valid JWT token created for the room.
         </p>
       </section>
       <section class="call-panel hidden" id="call-panel">
