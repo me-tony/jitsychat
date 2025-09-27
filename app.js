@@ -196,6 +196,8 @@
 
   async function connectToConference() {
     const domain = 'meet.jit.si';
+    const roomFragment = encodeURIComponent(appState.roomName);
+    const websocketService = `wss://${domain}/xmpp-websocket?room=${roomFragment}`;
     const connectionOptions = {
       hosts: {
         domain,
@@ -203,7 +205,8 @@
         focus: `focus.${domain}`,
         anonymousdomain: `guest.${domain}`
       },
-      serviceUrl: `wss://${domain}/xmpp-websocket`,
+      serviceUrl: websocketService,
+      websocket: websocketService,
       clientNode: 'http://jitsi.org/jitsimeet',
       useStunTurn: true
     };
