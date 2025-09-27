@@ -198,15 +198,16 @@
     const domain = 'meet.jit.si';
     const roomFragment = encodeURIComponent(appState.roomName);
     const websocketService = `wss://${domain}/xmpp-websocket?room=${roomFragment}`;
+    const boshService = `https://${domain}/http-bind?room=${roomFragment}`;
     const connectionOptions = {
       hosts: {
         domain,
         muc: `conference.${domain}`,
-        focus: `focus.${domain}`,
-        anonymousdomain: `guest.${domain}`
+        focus: `focus.${domain}`
       },
       serviceUrl: websocketService,
       websocket: websocketService,
+      bosh: boshService,
       clientNode: 'http://jitsi.org/jitsimeet',
       useStunTurn: true
     };
@@ -300,6 +301,10 @@
       appState.intentionalDisconnect = true;
       disconnectConference({ preserveStatus: true });
       setStatus(friendlyMessage, 'error');
+    });
+
+    conference.on(JitsiMeetJS.events.conference.PASSWORD_REQUIRED, () => {
+      setStatus('This room needs a moderator or password. Ask the host to join first or choose a new room name.', 'error');
     });
 
     conference.join();

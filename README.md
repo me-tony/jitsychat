@@ -4,7 +4,7 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
 
 ## Features
 
-- Join any public Jitsi room by name with no moderator or authentication required (anonymous domain handled automatically).
+- Join any public Jitsi room on meet.jit.si by name with no moderator or authentication required.
 - High-quality audio/video calling powered by the official `lib-jitsi-meet` SDK.
 - Real-time group chat alongside the call.
 - Participant list with live display-name updates.
@@ -39,3 +39,7 @@ A lightweight, dependency-free web client that connects directly to [Jitsi Meet]
 - Browsers require user interaction before accessing the camera and microphone. Grant permission when prompted.
 - Leaving the page or clicking **Leave call** will cleanly disconnect from the conference and release local media tracks.
 - If the connection to Jitsi is interrupted, the app automatically retries up to three times while keeping your call UI and chat history in place.
+
+## Do I need a moderator or password?
+
+The public service at [meet.jit.si](https://meet.jit.si/) lets anyone create and join a new room without authentication. As soon as the first person joins, the conference is active and others can connect anonymously with the same room name. If you see a prompt stating that a moderator or password is required, it means someone already locked that particular room. Pick a different room name to start your own meeting or ask the moderator to admit you.
