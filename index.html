@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JitsyChat</title>
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Replace the src URL with https://meet.yourdomain.tld/libs/lib-jitsi-meet.min.js on self-hosted deployments -->
+    <script src="https://meet.jit.si/libs/lib-jitsi-meet.min.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header>
+        <h1>JitsyChat</h1>
+        <p class="status" id="status">Disconnected</p>
+      </header>
+      <section class="join-panel" id="join-panel">
+        <form id="join-form">
+          <div class="field">
+            <label for="domain">Jitsi domain (optional)</label>
+            <input
+              type="text"
+              id="domain"
+              name="domain"
+              placeholder="meet.jit.si"
+              value="meet.jit.si"
+            />
+            <p class="hint">Leave blank to use the public meet.jit.si service.</p>
+          </div>
+          <div class="field">
+            <label for="room">Room name</label>
+            <input type="text" id="room" name="room" placeholder="team-sync" required />
+          </div>
+          <div class="field">
+            <label for="displayName">Display name</label>
+            <input type="text" id="displayName" name="displayName" placeholder="Your name" required />
+          </div>
+          <button type="submit" class="primary">Join call</button>
+        </form>
+      </section>
+      <section class="call-panel hidden" id="call-panel">
+        <div class="call-layout">
+          <div class="videos" id="video-stage">
+            <h2>Call</h2>
+            <div class="local" id="local-tracks"></div>
+            <div class="remote" id="remote-tracks"></div>
+          </div>
+          <aside class="sidebar">
+            <div class="participants" id="participants-panel">
+              <h2>Participants</h2>
+              <ul id="participants"></ul>
+            </div>
+            <div class="chat" id="chat-panel">
+              <h2>Chat</h2>
+              <div class="messages" id="messages"></div>
+              <form id="chat-form">
+                <input type="text" id="chat-input" placeholder="Type a message" autocomplete="off" />
+                <button type="submit">Send</button>
+              </form>
+            </div>
+            <div class="controls">
+              <button id="toggle-audio">Mute audio</button>
+              <button id="toggle-video">Hide video</button>
+              <button id="leave" class="danger">Leave call</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
