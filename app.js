@@ -5,7 +5,6 @@
   const joinForm = document.getElementById('join-form');
   const domainInput = document.getElementById('domain');
   const roomInput = document.getElementById('room');
-  const usernameInput = document.getElementById('username');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const messagesEl = document.getElementById('messages');
@@ -25,7 +24,6 @@
     domain: '',
     roomName: '',
     displayName: '',
-    credentials: null,
     audioMuted: false,
     videoMuted: false,
     joining: false,
@@ -52,19 +50,6 @@
       .toLowerCase();
   }
 
-  function buildAuthId(username, domain) {
-    const trimmed = username.trim();
-    if (!trimmed) {
-      return '';
-    }
-
-    if (trimmed.includes('@')) {
-      return trimmed;
-    }
-
-    return `${trimmed}@${domain}`;
-  }
-
   if (!window.JitsiMeetJS) {
     setStatus('Unable to load Jitsi library', 'error');
     return;
@@ -72,7 +57,7 @@
 
   JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels.ERROR);
   JitsiMeetJS.init({ disableAudioLevels: true });
-  setStatus('Enter your Jitsi domain to start.', 'info');
+  setStatus('Join a room on meet.jit.si or enter another Jitsi domain.', 'info');
 
   joinForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -86,47 +71,35 @@
     const rawRoom = (formData.get('room') || '').toString().trim();
     const room = sanitizeRoomName(rawRoom);
     const name = (formData.get('displayName') || '').toString().trim();
-    const username = (formData.get('username') || '').toString().trim();
-    const password = (formData.get('password') || '').toString();
-
-    if (!sanitizedDomain) {
-      setStatus('Enter the hostname of your Jitsi Meet deployment.', 'error');
-      return;
-    }
+    let domain = sanitizedDomain;
 
     if (!room || !name) {
       setStatus('Room name and display name are required.', 'error');
       return;
     }
 
-    if ((username && !password) || (!username && password)) {
-      setStatus('Provide both moderator username and password, or leave both blank to join as a guest.', 'error');
-      return;
-    }
-
     const trimmedDomain = rawDomain.trim();
-    if (sanitizedDomain !== trimmedDomain) {
-      setStatus(`Using Jitsi domain "${sanitizedDomain}".`, 'info');
+    if (!domain) {
+      domain = 'meet.jit.si';
+      if (!trimmedDomain) {
+        setStatus('Using public meet.jit.si service.', 'info');
+      } else {
+        setStatus('Using Jitsi domain "meet.jit.si".', 'info');
+      }
+    } else if (domain !== trimmedDomain) {
+      setStatus(`Using Jitsi domain "${domain}".`, 'info');
     }
 
     if (room !== rawRoom) {
       setStatus(`Joining room as "${room}" (invalid characters removed).`, 'info');
     }
 
-    appState.domain = sanitizedDomain;
+    appState.domain = domain;
     appState.roomName = room;
     appState.displayName = name;
-    appState.credentials = null;
-
-    if (username && password) {
-      appState.credentials = {
-        id: buildAuthId(username, sanitizedDomain),
-        password
-      };
-    }
 
     if (domainInput) {
-      domainInput.value = sanitizedDomain;
+      domainInput.value = domain;
     }
     if (roomInput) {
       roomInput.value = room;
@@ -140,8 +113,12 @@
   });
 
   async function startJoinFlow() {
-    if (!appState.domain || !appState.roomName || !appState.displayName) {
-      setStatus('Domain, room name, and display name are required.', 'error');
+    if (!appState.domain) {
+      appState.domain = 'meet.jit.si';
+    }
+
+    if (!appState.roomName || !appState.displayName) {
+      setStatus('Room name and display name are required.', 'error');
       return;
     }
 
@@ -185,7 +162,7 @@
     remoteTracksEl.innerHTML = '';
   }
 
-  function isModeratorAuthError(error) {
+  function isRoomLockError(error) {
     const conferenceErrors = JitsiMeetJS?.errors?.conference || {};
     if (error === conferenceErrors.PASSWORD_REQUIRED || error === conferenceErrors.AUTHENTICATION_REQUIRED) {
       return true;
@@ -198,12 +175,12 @@
     return false;
   }
 
-  function handleModeratorRequired() {
+  function handleRoomLocked() {
     disconnectConference({ preserveStatus: true });
     showLobby();
-    setStatus('Moderator credentials are required to start this room. Enter a Prosody account and try again.', 'error');
-    if (usernameInput) {
-      usernameInput.focus();
+    setStatus('Room is locked by a moderator. Choose a different room name or ask the host to let you in.', 'error');
+    if (roomInput) {
+      roomInput.focus();
     }
   }
 
@@ -314,14 +291,11 @@
 
   async function connectToConference() {
     const domain = appState.domain;
-    const guestDomain = `guest.${domain}`;
-    const roomFragment = encodeURIComponent(appState.roomName);
-    const websocketService = `wss://${domain}/xmpp-websocket?room=${roomFragment}`;
-    const boshService = `https://${domain}/http-bind?room=${roomFragment}`;
+    const websocketService = `wss://${domain}/xmpp-websocket`;
+    const boshService = `https://${domain}/http-bind`;
     const connectionOptions = {
       hosts: {
         domain,
-        anonymousdomain: guestDomain,
         muc: `conference.${domain}`,
         focus: `focus.${domain}`
       },
@@ -339,11 +313,7 @@
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_FAILED, onConnectionFailed);
     connection.addEventListener(JitsiMeetJS.events.connection.CONNECTION_DISCONNECTED, onConnectionDisconnected);
 
-    if (appState.credentials) {
-      connection.connect(appState.credentials);
-    } else {
-      connection.connect();
-    }
+    connection.connect();
   }
 
   function onConnectionSuccess() {
@@ -424,15 +394,15 @@
       console.error('Conference failed', error, friendlyMessage);
       appState.intentionalDisconnect = true;
       disconnectConference({ preserveStatus: true });
-      if (isModeratorAuthError(error)) {
-        handleModeratorRequired();
+      if (isRoomLockError(error)) {
+        handleRoomLocked();
         return;
       }
       setStatus(friendlyMessage, 'error');
     });
 
     conference.on(JitsiMeetJS.events.conference.PASSWORD_REQUIRED, () => {
-      handleModeratorRequired();
+      handleRoomLocked();
     });
 
     conference.join();
@@ -454,14 +424,14 @@
       error === connectionErrors.UNAUTHORIZED ||
       error === connectionErrors.CONNECTION_DENIED;
     if (authFailure) {
-      setStatus('Authentication required. Provide a moderator username and password, then try again.', 'error');
+      setStatus('Room is locked by a moderator. Try another room name or ask to be admitted.', 'error');
       customMessageShown = true;
     }
     if (appState.reconnecting) {
       if (authFailure) {
         appState.reconnecting = false;
         disconnectConference({ preserveStatus: true });
-        handleModeratorRequired();
+        handleRoomLocked();
         return;
       }
 
@@ -476,7 +446,7 @@
 
     disconnectConference({ preserveStatus: true });
     if (authFailure) {
-      handleModeratorRequired();
+      handleRoomLocked();
       return;
     }
     if (!customMessageShown) {
@@ -658,9 +628,9 @@
     const errors = JitsiMeetJS?.errors?.conference || {};
     switch (error) {
       case errors.AUTHENTICATION_REQUIRED:
-        return 'Authentication required. Enter your moderator username and password, then try again.';
+        return 'Room is locked by its moderator. Try another room name or ask to be admitted.';
       case errors.PASSWORD_REQUIRED:
-        return 'Conference requires a moderator. Log in with a moderator account to open the room.';
+        return 'Room is locked by its moderator. Ask the host to let you in or pick a new room name.';
       case errors.CONFERENCE_MAX_USERS:
         return 'Room is full. Try again later or choose another room name.';
       case errors.CONFERENCE_DESTROYED:
@@ -677,7 +647,7 @@
       default:
         if (typeof error === 'string' && error.length > 0) {
           if (error.includes('membersOnly')) {
-            return 'Room is locked until a moderator joins. Enter moderator credentials and try again.';
+            return 'Room is locked by its moderator. Choose a different room name or wait to be admitted.';
           }
           return `Conference failed: ${error}`;
         }

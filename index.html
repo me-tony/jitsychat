@@ -18,14 +18,15 @@
       <section class="join-panel" id="join-panel">
         <form id="join-form">
           <div class="field">
-            <label for="domain">Jitsi domain</label>
+            <label for="domain">Jitsi domain (optional)</label>
             <input
               type="text"
               id="domain"
               name="domain"
-              placeholder="meet.yourdomain.tld"
-              required
+              placeholder="meet.jit.si"
+              value="meet.jit.si"
             />
+            <p class="hint">Leave blank to use the public meet.jit.si service.</p>
           </div>
           <div class="field">
             <label for="room">Room name</label>
@@ -35,17 +36,6 @@
             <label for="displayName">Display name</label>
             <input type="text" id="displayName" name="displayName" placeholder="Your name" required />
           </div>
-          <div class="field">
-            <label for="username">Moderator username (optional)</label>
-            <input type="text" id="username" name="username" placeholder="conference-host" autocomplete="username" />
-          </div>
-          <div class="field">
-            <label for="password">Moderator password (optional)</label>
-            <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" />
-          </div>
-          <p class="hint">
-            Enter moderator credentials created on your Jitsi server to unlock a new room. Leave the fields blank to join as an anonymous guest through the configured guest domain.
-          </p>
           <button type="submit" class="primary">Join call</button>
         </form>
       </section>
